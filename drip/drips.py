@@ -1,10 +1,14 @@
 from django.conf import settings
-from datetime import datetime
 
 from django.contrib.auth.models import User
 from django.template import Context, Template
 from drip.models import SentDrip
 from django.core.mail import EmailMultiAlternatives
+
+try:
+    from django.utils.timezone import now as conditional_now
+except ImportError:
+    from datetime.datetime import now as conditional_now
 
 
 class DripBase(object):
@@ -18,15 +22,12 @@ class DripBase(object):
     name = None
     subject_template = None
     body_template = None
-    from_email = None
-    from_email_name = None
 
     def __init__(self, drip_model, *args, **kwargs):
         self.drip_model = drip_model
 
         self.name = kwargs.pop('name', self.name)
-        self.from_email = kwargs.pop('from_email', self.from_email)
-        self.from_email_name = kwargs.pop('from_email_name', self.from_email_name)
+
         self.subject_template = kwargs.pop('subject_template', self.subject_template)
         self.body_template = kwargs.pop('body_template', self.body_template)
 
@@ -45,7 +46,7 @@ class DripBase(object):
         This allows us to override what we consider "now", making it easy
         to build timelines of who gets what when.
         """
-        return datetime.now() + self.timedelta(**self.now_shift_kwargs)
+        return conditional_now() + self.timedelta(**self.now_shift_kwargs)
 
     def timedelta(self, *a, **kw):
         """
@@ -79,8 +80,7 @@ class DripBase(object):
         try:
             return self._queryset
         except AttributeError:
-            self._queryset = self.apply_queryset_rules(self.queryset())\
-                                 .distinct()
+            self._queryset = self.apply_queryset_rules(self.queryset())
             return self._queryset
 
     def run(self):
@@ -100,7 +100,7 @@ class DripBase(object):
         Do an exclude for all Users who have a SentDrip already.
         """
         target_user_ids = self.get_queryset().values_list('id', flat=True)
-        exclude_user_ids = SentDrip.objects.filter(date__lt=datetime.now(),
+        exclude_user_ids = SentDrip.objects.filter(date__lt=conditional_now(),
                                                    drip=self.drip_model,
                                                    user__id__in=target_user_ids)\
                                            .values_list('user_id', flat=True)
@@ -112,19 +112,14 @@ class DripBase(object):
         """
         from django.utils.html import strip_tags
 
-        if not self.from_email:
-            from_ = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
-        elif self.from_email_name:
-            from_ = "%s <%s>" % (self.from_email_name, self.from_email)
-        else:
-            from_ = self.from_email
+        from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.EMAIL_HOST_USER)
 
         context = Context({'user': user})
         subject = Template(self.subject_template).render(context)
         body = Template(self.body_template).render(context)
         plain = strip_tags(body)
 
-        email = EmailMultiAlternatives(subject, plain, from_, [user.email])
+        email = EmailMultiAlternatives(subject, plain, from_email, [user.email])
 
         # check if there are html tags in the rendered template
         if len(plain) != len(body):
@@ -134,8 +129,6 @@ class DripBase(object):
             sd = SentDrip.objects.create(
                 drip=self.drip_model,
                 user=user,
-                from_email = self.from_email,
-                from_email_name = self.from_email_name,
                 subject=subject,
                 body=body
             )
