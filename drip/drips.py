@@ -23,12 +23,15 @@ class DripBase(object):
     name = None
     subject_template = None
     body_template = None
+    from_email = None
+    from_email_name = None
 
     def __init__(self, drip_model, *args, **kwargs):
         self.drip_model = drip_model
 
         self.name = kwargs.pop('name', self.name)
-
+        self.from_email = kwargs.pop('from_email', self.from_email)
+        self.from_email_name = kwargs.pop('from_email_name', self.from_email_name)
         self.subject_template = kwargs.pop('subject_template', self.subject_template)
         self.body_template = kwargs.pop('body_template', self.body_template)
 
@@ -81,7 +84,8 @@ class DripBase(object):
         try:
             return self._queryset
         except AttributeError:
-            self._queryset = self.apply_queryset_rules(self.queryset())
+            self._queryset = self.apply_queryset_rules(self.queryset())\
+                                 .distinct()
             return self._queryset
 
     def run(self):
@@ -113,14 +117,19 @@ class DripBase(object):
         """
         from django.utils.html import strip_tags
 
-        from_email = getattr(settings, 'DRIP_FROM_EMAIL', settings.EMAIL_HOST_USER)
+        if not self.from_email:
+            from_ = getattr(settings, 'DRIP_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL)
+        elif self.from_email_name:
+            from_ = "%s <%s>" % (self.from_email_name, self.from_email)
+        else:
+            from_ = self.from_email
 
         context = Context({'user': user})
         subject = Template(self.subject_template).render(context)
         body = Template(self.body_template).render(context)
         plain = strip_tags(body)
 
-        email = EmailMultiAlternatives(subject, plain, from_email, [user.email])
+        email = EmailMultiAlternatives(subject, plain, from_, [user.email])
 
         # check if there are html tags in the rendered template
         if len(plain) != len(body):
@@ -130,6 +139,8 @@ class DripBase(object):
             sd = SentDrip.objects.create(
                 drip=self.drip_model,
                 user=user,
+                from_email = self.from_email,
+                from_email_name = self.from_email_name,
                 subject=subject,
                 body=body
             )
