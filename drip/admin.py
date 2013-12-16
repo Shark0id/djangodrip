@@ -52,18 +52,13 @@ class DripAdmin(admin.ModelAdmin):
         drip = get_object_or_404(Drip, id=drip_id)
         user = get_object_or_404(User, id=user_id)
         drip_message = message_class_for(drip.message_class)(drip.drip, user)
-        html = ''
-        mime = ''
-        if drip_message.message.alternatives:
-            for body, mime in drip_message.message.alternatives:
-                if mime == 'text/html':
-                    html = body
-                    mime = 'text/html'
-        else:
-            html = drip_message.message.body
-            mime = 'text/plain'
 
-        return HttpResponse(html, content_type=mime)
+        html = ''
+        for body, mime in drip_message.message.alternatives:
+            if mime == 'text/html':
+                html = body
+
+        return HttpResponse(html)
 
     def build_extra_context(self, extra_context):
         from drip.utils import get_simple_fields
@@ -80,7 +75,7 @@ class DripAdmin(admin.ModelAdmin):
             request, object_id, extra_context=self.build_extra_context(extra_context))
 
     def get_urls(self):
-        from django.conf.urls.defaults import patterns, url
+        from django.conf.urls import patterns, url
         urls = super(DripAdmin, self).get_urls()
         my_urls = patterns('',
             url(
