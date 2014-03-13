@@ -100,7 +100,7 @@ class QuerySetRule(models.Model):
 
     field_value = models.CharField(max_length=255,
         help_text=('Can be anything from a number, to a string. Or, do ' +
-                   '`now-7 days` or `now+3 days` for fancy timedelta.'))
+                   '`now-7 days` or `today+3 days` for fancy timedelta.'))
 
     def clean(self):
         try:
@@ -109,7 +109,7 @@ class QuerySetRule(models.Model):
             raise ValidationError(
                 '%s raised trying to apply rule: %s' % (type(e).__name__, e))
 
-    def apply(self, qs, now=datetime.now):
+    def filter_kwargs(self, qs, now=datetime.now):
         # Support Count() as m2m__count
         field_name = self.field_name
         if field_name.endswith('__count'):
@@ -123,12 +123,16 @@ class QuerySetRule(models.Model):
         # set time deltas and dates
         if field_value.startswith('now-'):
             field_value = self.field_value.replace('now-', '')
-            delta = djangotimedelta.parse(field_value)
-            field_value = now() - delta
+            field_value = now() - djangotimedelta.parse(field_value)
         elif field_value.startswith('now+'):
             field_value = self.field_value.replace('now+', '')
-            delta = djangotimedelta.parse(field_value)
-            field_value = now() + delta
+            field_value = now() + djangotimedelta.parse(field_value)
+        elif field_value.startswith('today-'):
+            field_value = self.field_value.replace('today-', '')
+            field_value = now().date() - djangotimedelta.parse(field_value)
+        elif field_value.startswith('today+'):
+            field_value = self.field_value.replace('today+', '')
+            field_value = now().date() + djangotimedelta.parse(field_value)
 
         # set booleans
         if field_value == 'True':
@@ -138,6 +142,11 @@ class QuerySetRule(models.Model):
 
         kwargs = {field_name: field_value}
 
+        return kwargs
+
+    def apply(self, qs, now=datetime.now):
+
+        kwargs = self.filter_kwargs(qs, now)
         if self.method_type == 'filter':
             return qs.filter(**kwargs)
         elif self.method_type == 'exclude':

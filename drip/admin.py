@@ -38,11 +38,13 @@ class DripAdmin(admin.ModelAdmin):
         drip = get_object_or_404(Drip, id=drip_id)
 
         shifted_drips = []
+        seen_users = set()
         for shifted_drip in drip.drip.walk(into_past=int(into_past), into_future=int(into_future)+1):
             shifted_drips.append({
                 'drip': shifted_drip,
-                'qs': shifted_drip.get_queryset()
+                'qs': shifted_drip.get_queryset().exclude(id__in=seen_users)
             })
+            seen_users.update(shifted_drip.get_queryset().values_list('id', flat=True))
 
         return render(request, 'drip/timeline.html', locals())
 
@@ -75,7 +77,7 @@ class DripAdmin(admin.ModelAdmin):
             request, object_id, extra_context=self.build_extra_context(extra_context))
 
     def get_urls(self):
-        from django.conf.urls import patterns, url
+        from django.conf.urls.defaults import patterns, url
         urls = super(DripAdmin, self).get_urls()
         my_urls = patterns('',
             url(
