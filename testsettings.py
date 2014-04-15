@@ -1,3 +1,4 @@
+
 # MUST SPECIFY TO MAKE USE OF DJANGO DRIP
 DRIP_FROM_EMAIL = ''
 
@@ -10,7 +11,6 @@ DATABASES = {
 
 INSTALLED_APPS = (
     'django.contrib.auth',
-    'django.contrib.admin',
     'django.contrib.contenttypes',
 
     'drip',
@@ -21,4 +21,3 @@ INSTALLED_APPS = (
 
 AUTH_PROFILE_MODULE = 'credits.Profile'
 
-ROOT_URLCONF = 'test_urls'
