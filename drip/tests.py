@@ -1,20 +1,13 @@
 from datetime import datetime, timedelta
 
 from django.test import TestCase
-
-try:
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
-except ImportError:
-    from django.contrib.auth.models import User
-
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core import mail
 from django.conf import settings
 
 from drip.models import Drip, SentDrip, QuerySetRule
 from drip.drips import DripBase, DripMessage
-from credits.models import Profile
 
 
 class RulesTestCase(TestCase):
@@ -51,7 +44,7 @@ class DripsTestCase(TestCase):
             user = User.objects.create(username='%s_25_credits_a_day' % name, email='%s@test.com' % name)
             User.objects.filter(id=user.id).update(date_joined=start - timedelta(days=i))
 
-            profile = Profile.objects.get(user=user)
+            profile = user.get_profile()
             profile.credits = i * 25
             profile.save()
 
