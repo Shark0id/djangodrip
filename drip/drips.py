@@ -1,20 +1,9 @@
-import operator
-import six
-
 from django.conf import settings
-from django.db import models
-
-try:
-    from django.conf import settings
-    User = settings.AUTH_USER_MODEL
-except AttributeError:
-    from django.contrib.auth.models import User
-
+from django.contrib.auth.models import User
 from django.template import Context, Template
 from django.utils.importlib import import_module
 from django.core.mail import EmailMultiAlternatives
 from django.utils.html import strip_tags
-
 
 from drip.models import SentDrip
 
@@ -160,27 +149,8 @@ class DripBase(object):
         return walked_range
 
     def apply_queryset_rules(self, qs):
-        """
-        First collect all filter/exclude kwargs and apply any annotations.
-        Then apply all filters at once, and all excludes at once.
-        """
-        clauses = {
-            'filter': [],
-            'exclude': []}
-
-        for rule in self.drip_model.queryset_rules.all():
-
-            clause = clauses.get(rule.method_type, clauses['filter'])
-
-            kwargs = rule.filter_kwargs(qs, now=self.now)
-            clause.append(models.Q(**kwargs))
-
-            qs = rule.apply_any_annotation(qs)
-
-        if clauses['exclude']:
-            qs = qs.exclude(reduce(operator.or_, clauses['exclude']))
-        qs = qs.filter(*clauses['filter'])
-
+        for queryset_rule in self.drip_model.queryset_rules.all():
+            qs = queryset_rule.apply(qs, now=self.now)
         return qs
 
     ##################
@@ -261,11 +231,4 @@ class DripBase(object):
         Alternatively, you could create Drips on the fly
         using a queryset builder from the admin interface...
         """
-
-        # github.com/omab/python-social-auth/commit/d8637cec02422374e4102231488481170dc51057
-        if isinstance(User, six.string_types):
-            app_label, model_name = User.split('.')
-            UserModel = models.get_model(app_label, model_name)
-            return UserModel.objects
-
         return User.objects
