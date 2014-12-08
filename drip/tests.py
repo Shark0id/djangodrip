@@ -1,22 +1,13 @@
 from datetime import datetime, timedelta
 
 from django.test import TestCase
-from django.test.client import RequestFactory
-
-try:
-    from django.contrib.auth import get_user_model
-    User = get_user_model()
-except ImportError:
-    from django.contrib.auth.models import User
-
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
-from django.core.urlresolvers import resolve, reverse
 from django.core import mail
 from django.conf import settings
 
 from drip.models import Drip, SentDrip, QuerySetRule
 from drip.drips import DripBase, DripMessage
-from credits.models import Profile
 
 
 class RulesTestCase(TestCase):
@@ -41,6 +32,7 @@ class RulesTestCase(TestCase):
 
 
 class DripsTestCase(TestCase):
+
     def setUp(self):
         """
         Creates 20 users, half of which buy 25 credits a day,
@@ -53,14 +45,13 @@ class DripsTestCase(TestCase):
             user = User.objects.create(username='%s_25_credits_a_day' % name, email='%s@test.com' % name)
             User.objects.filter(id=user.id).update(date_joined=start - timedelta(days=i))
 
-            profile = Profile.objects.get(user=user)
+            profile = user.profile
             profile.credits = i * 25
             profile.save()
 
         for i, name in enumerate(num_string):
             user = User.objects.create(username='%s_no_credits' % name, email='%s@test.com' % name)
             User.objects.filter(id=user.id).update(date_joined=start - timedelta(days=i))
-
 
     def test_users_exists(self):
         self.assertEqual(20, User.objects.all().count())
@@ -146,7 +137,7 @@ class DripsTestCase(TestCase):
 
     def test_custom_drip(self):
         """
-        Test a simple
+        Test a simple 
         """
         model_drip = self.build_joined_date_drip()
         drip = model_drip.drip
@@ -185,7 +176,7 @@ class DripsTestCase(TestCase):
 
         # vanilla (now-8, now-7), past (now-8-3, now-7-3), future (now-8+1, now-7+1)
         for count, shifted_drip in zip([0, 2, 2, 2, 2], drip.walk(into_past=3, into_future=2)):
-            self.assertEquals(count, shifted_drip.get_queryset().count())
+            self.assertEqual(count, shifted_drip.get_queryset().count())
 
         # no reason to change after a send...
         drip.send()
@@ -193,7 +184,7 @@ class DripsTestCase(TestCase):
 
         # vanilla (now-8, now-7), past (now-8-3, now-7-3), future (now-8+1, now-7+1)
         for count, shifted_drip in zip([0, 2, 2, 2, 2], drip.walk(into_past=3, into_future=2)):
-            self.assertEquals(count, shifted_drip.get_queryset().count())
+            self.assertEqual(count, shifted_drip.get_queryset().count())
 
     def test_custom_drip_with_count(self):
         model_drip = self.build_joined_date_drip()
@@ -208,36 +199,7 @@ class DripsTestCase(TestCase):
         self.assertEqual(1, drip.get_queryset().count()) # 1 person meet the criteria
 
         for count, shifted_drip in zip([0, 1, 1, 1, 1], drip.walk(into_past=3, into_future=2)):
-            self.assertEquals(count, shifted_drip.get_queryset().count())
-
-    def test_exclude_and_include(self):
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='profile__credits',
-            lookup_type='gte',
-            field_value='1'
-        )
-        QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='profile__credits',
-            method_type='exclude',
-            lookup_type='exact',
-            field_value=100
-        )
-        QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='profile__credits',
-            method_type='exclude',
-            lookup_type='exact',
-            field_value=125
-        )
-        self.assertEqual(7, model_drip.drip.get_queryset().count()) # 7 people meet the criteria
+            self.assertEqual(count, shifted_drip.get_queryset().count())
 
     def test_custom_drip_static_datetime(self):
         model_drip = self.build_joined_date_drip()
@@ -250,7 +212,7 @@ class DripsTestCase(TestCase):
         drip = model_drip.drip
 
         for count, shifted_drip in zip([0, 2, 2, 0, 0], drip.walk(into_past=3, into_future=2)):
-            self.assertEquals(count, shifted_drip.get_queryset().count())
+            self.assertEqual(count, shifted_drip.get_queryset().count())
 
     def test_custom_drip_static_now_datetime(self):
         model_drip = Drip.objects.create(
@@ -268,147 +230,7 @@ class DripsTestCase(TestCase):
 
         # catches "today and yesterday" users
         for count, shifted_drip in zip([4, 4, 4, 4, 4], drip.walk(into_past=3, into_future=3)):
-            self.assertEquals(count, shifted_drip.get_queryset().count())
-
-    def test_admin_timeline_prunes_user_output(self):
-        """multiple users in timeline is confusing."""
-        admin = User.objects.create(username='admin', email='admin@example.com')
-        admin.is_staff=True
-        admin.is_superuser=True
-        admin.save()
-
-        # create a drip campaign that will surely give us duplicates.
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-        QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='date_joined',
-            lookup_type='gte',
-            field_value=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
-        )
-
-        # then get it's admin view.
-        rf = RequestFactory()
-        timeline_url = reverse('admin:drip_timeline', kwargs={
-                                    'drip_id': model_drip.id,
-                                    'into_past': 3,
-                                    'into_future': 3})
-
-        request = rf.get(timeline_url)
-        request.user = admin
-
-        match = resolve(timeline_url)
-
-        response = match.func(request, *match.args, **match.kwargs)
-
-        # check that our admin (not excluded from test) is shown once.
-        self.assertEqual(response.content.count(admin.email), 1)
-
-
-    ##################
-    ### TEST M2M   ###
-    ##################
-
-    def test_annotated_field_name_property_no_count(self):
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        qsr = QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='date_joined',
-            lookup_type='exact',
-            field_value=2
-        )
-        self.assertEqual(qsr.annotated_field_name, 'date_joined')
-
-    def test_annotated_field_name_property_with_count(self):
-
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        qsr = QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='userprofile__user__groups__count',
-            lookup_type='exact',
-            field_value=2
-        )
-
-        self.assertEqual(qsr.annotated_field_name, 'num_userprofile_user_groups')
-
-    def test_apply_annotations_no_count(self):
-
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        qsr = QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='date_joined',
-            lookup_type='exact',
-            field_value=2
-        )
-
-        qs = qsr.apply_any_annotation(None)
-
-        self.assertEqual(qs, None)
-
-    def test_apply_annotations_with_count(self):
-
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        qsr = QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='profile__user__groups__count',
-            lookup_type='exact',
-            field_value=2
-        )
-
-        qs = qsr.apply_any_annotation(model_drip.drip.get_queryset())
-
-        self.assertEqual(qs.query._aggregate_select().keys(), ['num_profile_user_groups'])
-
-    def test_apply_multiple_rules_with_aggregation(self):
-
-        model_drip = Drip.objects.create(
-            name='A Custom Week Ago',
-            subject_template='HELLO {{ user.username }}',
-            body_html_template='KETTEHS ROCK!'
-        )
-
-        qsr = QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='profile__user__groups__count',
-            lookup_type='exact',
-            field_value='0'
-        )
-
-        QuerySetRule.objects.create(
-            drip=model_drip,
-            field_name='date_joined',
-            lookup_type='gte',
-            field_value=(datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
-        )
-
-
-        qsr.clean()
-        qs = model_drip.drip.apply_queryset_rules(model_drip.drip.get_queryset())
-
-        self.assertEqual(qs.count(), 4)
+            self.assertEqual(count, shifted_drip.get_queryset().count())
 
 
 # Used by CustomMessagesTest
@@ -446,16 +268,16 @@ class CustomMessagesTest(TestCase):
 
     def test_default_email(self):
         result = self.model_drip.drip.send()
-        self.assertEquals(1, result)
-        self.assertEquals(1, len(mail.outbox))
+        self.assertEqual(1, result)
+        self.assertEqual(1, len(mail.outbox))
         email = mail.outbox.pop()
         self.assertIsInstance(email, mail.EmailMultiAlternatives)
 
     def test_custom_added_not_used(self):
         settings.DRIP_MESSAGE_CLASSES = {'plain': 'drip.tests.PlainDripEmail'}
         result = self.model_drip.drip.send()
-        self.assertEquals(1, result)
-        self.assertEquals(1, len(mail.outbox))
+        self.assertEqual(1, result)
+        self.assertEqual(1, len(mail.outbox))
         email = mail.outbox.pop()
         # Since we did not specify custom class, default should be used.
         self.assertIsInstance(email, mail.EmailMultiAlternatives)
@@ -465,8 +287,8 @@ class CustomMessagesTest(TestCase):
         self.model_drip.message_class = 'plain'
         self.model_drip.save()
         result = self.model_drip.drip.send()
-        self.assertEquals(1, result)
-        self.assertEquals(1, len(mail.outbox))
+        self.assertEqual(1, result)
+        self.assertEqual(1, len(mail.outbox))
         email = mail.outbox.pop()
         # In this case we did specify the custom key, so message should be of custom type.
         self.assertIsInstance(email, mail.EmailMessage)
@@ -474,7 +296,7 @@ class CustomMessagesTest(TestCase):
     def test_override_default(self):
         settings.DRIP_MESSAGE_CLASSES = {'default': 'drip.tests.PlainDripEmail'}
         result = self.model_drip.drip.send()
-        self.assertEquals(1, result)
-        self.assertEquals(1, len(mail.outbox))
+        self.assertEqual(1, result)
+        self.assertEqual(1, len(mail.outbox))
         email = mail.outbox.pop()
         self.assertIsInstance(email, mail.EmailMessage)
