@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import os
+from setuptools import setup
 import re
+import os
 import sys
 
-from setuptools import setup
 
 name = 'django-drip'
 package = 'drip'
